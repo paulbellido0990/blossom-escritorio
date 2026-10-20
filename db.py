@@ -158,6 +158,14 @@ class Database:
             self.conn.execute('DELETE FROM sales WHERE id=?', (sale_id,))
         return backup
 
+    def deleted_sales(self):
+        records = []
+        for row in self.conn.execute("SELECT * FROM audit_log WHERE action='delete_sale' ORDER BY id DESC"):
+            item = dict(row)
+            item.update(json.loads(item.pop('snapshot')))
+            records.append(item)
+        return records
+
     def restore(self, source):
         source = Path(source).resolve()
         if source == self.path.resolve():
@@ -379,7 +387,11 @@ class Database:
             MAX(0, qty*price_cents+shipping_cents-discount_cents -
             COALESCE((SELECT SUM(amount_cents) FROM payments p WHERE p.sale_id=s.id),0))),0)
             FROM sales s WHERE status!='Cancelado' ''').fetchone()[0]
-        return {'sales':sal['sold'],'cost':sal['cost'],'delivered':sal['n'],
+        registered = self.conn.execute(
+            "SELECT COALESCE(SUM(qty*price_cents+shipping_cents-discount_cents),0) FROM sales "
+            "WHERE status!='Cancelado'" + (" AND substr(sale_date,1,7)=?" if month else ''),
+            saleparams).fetchone()[0]
+        return {'registered':registered,'sales':sal['sold'],'cost':sal['cost'],'delivered':sal['n'],
                 'collected':pay,'spent':exp['spend'],'operating':exp['op'],
                 'result':sal['sold']-sal['cost']-exp['op'],'pending':unpaid}
 

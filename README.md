@@ -95,3 +95,9 @@ python -m pytest -q
 - Las copias automáticas se guardan junto a la base, en `blossom_respaldos`. Mantén además copias externas desde Configuración.
 - Volver a seleccionar Entregado conserva la fecha original de entrega.
 - La base utiliza `PRAGMA user_version=1`; se admiten respaldos de la versión inicial y se incorpora el historial interno al restaurarlos.
+
+
+Actualización de consultas: Ventas incorpora la pestaña **Ventas eliminadas**, con ID original, fecha de eliminación, motivo y detalle de los pagos conservados. Estas ventas no afectan los totales activos. Estadísticas muestra pedidos registrados, cobros netos y todos los gastos pagados por separado de las ventas entregadas y añade **Datos por mes**. Los pedidos se agrupan por fecha de registro; las ventas entregadas por entrega; los movimientos de dinero por su fecha.
+
+
+Comprobantes PDF: en **Ventas → Historial y cobros**, selecciona una venta y pulsa **Comprobante PDF**. Elige dónde guardarlo; abre el archivo para imprimirlo con Ctrl+P. Incluye logo, cliente, producto, cantidad, precio, envío, descuento, pagos, devoluciones y saldo pendiente, con los colores de BLOSSOM. No incluye costos de producción ni notas internas. Es un comprobante de pedido y pagos, no una factura fiscal. Para ejecutar desde código instala primero `py -m pip install -r requirements.txt`; la compilación del ejecutable ya incluye esta dependencia.

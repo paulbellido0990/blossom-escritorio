@@ -184,3 +184,35 @@ def test_daily_backup_is_once_and_retains_30(db):
     db.automatic_backup()
     assert len(list(db.backup_dir.glob('diario_*.db'))) == 30
     assert protected.exists()
+
+
+def test_deleted_sales_remains_queryable_after_reopening(db):
+    sid = db.add_sale('Ana', 'Flor', 'Encargo', 1, '50', '10', advance='30')
+    db.refund(sid, '5', 'Efectivo')
+    db.delete_sale(sid, 'Duplicada')
+    reopened = Database(db.path)
+    try:
+        item = reopened.deleted_sales()[0]
+        assert item['sale_id'] == sid
+        assert item['reason'] == 'Duplicada'
+        assert item['sale']['total_cents'] == 5000
+        assert item['sale']['paid_cents'] == 2500
+        assert len(item['payments']) == 2
+        assert reopened.totals()['registered'] == 0
+        assert reopened.totals()['collected'] == 0
+    finally:
+        reopened.close()
+
+
+def test_registered_delivered_and_collected_have_distinct_dates(db):
+    sid = db.add_sale('Ana','Flor','Encargo',1,'100','30',advance='20',sale_date='2026-01-31')
+    db.add_payment(sid,'80','QR',when='2026-02-01')
+    db.set_status(sid,'Entregado',when='2026-03-01')
+    db.add_expense('Compra de materiales','Material','15','Efectivo',when='2026-01-31')
+    assert db.totals('2026-01')['registered'] == 10000
+    assert db.totals('2026-01')['collected'] == 2000
+    assert db.totals('2026-01')['spent'] == 1500
+    assert db.totals('2026-01')['operating'] == 0
+    assert db.totals('2026-02')['collected'] == 8000
+    assert db.totals('2026-03')['sales'] == 10000
+    assert db.totals('2026-03')['result'] == 7000

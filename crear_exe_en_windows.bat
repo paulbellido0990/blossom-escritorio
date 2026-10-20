@@ -13,7 +13,7 @@ if errorlevel 1 (
 )
 python -m pip install --upgrade pip
 if errorlevel 1 goto error
-python -m pip install pyinstaller pytest
+python -m pip install pyinstaller pytest -r requirements.txt
 if errorlevel 1 goto error
 python -m pytest -q
 if errorlevel 1 goto error

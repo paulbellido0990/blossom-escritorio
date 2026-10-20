@@ -155,3 +155,9 @@ La primera etapa incorpora eliminación de ventas con motivo, confirmación, res
 La eliminación retira también los pagos y devoluciones asociados, modificando caja y reportes. Para devolver dinero realmente debe utilizarse el flujo de devolución. El historial eliminado queda en `audit_log` y puede recuperarse mediante el respaldo completo anterior.
 
 Las propuestas anteriores constituyen el plan original: estos puntos ya están implementados. Siguen pendientes edición auditable de ventas y gastos, ubicación configurable de respaldos, catálogo, clientes, inventario, filtros avanzados y cuentas separadas.
+
+
+Actualización de consultas: Ventas incorpora la pestaña **Ventas eliminadas**, con ID original, fecha de eliminación, motivo y detalle de los pagos conservados. Estas ventas no afectan los totales activos. Estadísticas muestra pedidos registrados, cobros netos y todos los gastos pagados por separado de las ventas entregadas y añade **Datos por mes**. Los pedidos se agrupan por fecha de registro; las ventas entregadas por entrega; los movimientos de dinero por su fecha.
+
+
+Comprobantes PDF: en **Ventas → Historial y cobros**, selecciona una venta y pulsa **Comprobante PDF**. Elige dónde guardarlo; abre el archivo para imprimirlo con Ctrl+P. Incluye logo, cliente, producto, cantidad, precio, envío, descuento, pagos, devoluciones y saldo pendiente, con los colores de BLOSSOM. No incluye costos de producción ni notas internas. Es un comprobante de pedido y pagos, no una factura fiscal. Para ejecutar desde código instala primero `py -m pip install -r requirements.txt`; la compilación del ejecutable ya incluye esta dependencia.

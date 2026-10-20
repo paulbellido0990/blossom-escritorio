@@ -168,6 +168,8 @@ class BlossomApp(tk.Tk):
         all_t = self.db.totals()
         self._heading(self.content, 'Tu negocio, de un vistazo',
                       'Resumen mensual de ventas entregadas y movimiento de efectivo. Valores en bolivianos.')
+        tk.Label(self.content, text=f'Mes: {self.selected_month} · Pedidos registrados: {bs(t["registered"])} · Las ventas del mes incluyen solo entregados.',
+                 bg=LIGHT, fg=MUTED, wraplength=750, justify='left').pack(anchor='w', pady=(0,8))
         row = tk.Frame(self.content, bg=LIGHT)
         row.pack(fill='x', pady=(3, 21))
         cards = [('Ventas del mes', bs(t['sales']), SOFT),
@@ -175,7 +177,7 @@ class BlossomApp(tk.Tk):
                  ('Gastos pagados', bs(t['spent']), '#FFF2E3'),
                  ('Resultado estimado', bs(t['result']), MINT)]
         for i, (name,value,tone) in enumerate(cards):
-            row.columnconfigure(i, weight=1)
+            row.columnconfigure(i, weight=1, uniform='home_cards')
             self._card(row, name, value, tone).grid(row=0,column=i,sticky='ew',padx=(0 if i==0 else 5, 5))
         strip = tk.Frame(self.content, bg=PANEL, padx=18, pady=12,
                          highlightbackground=BORDER, highlightthickness=1)
@@ -205,6 +207,15 @@ class BlossomApp(tk.Tk):
         hist = tk.Frame(notebook,bg=LIGHT)
         notebook.add(new,text='  Nueva venta  ')
         notebook.add(hist,text='  Historial y cobros  ')
+        deleted = tk.Frame(notebook, bg=LIGHT)
+        notebook.add(deleted, text='  Ventas eliminadas  ')
+        tk.Label(deleted, text='Historial de eliminaciones. Estos importes no se incluyen en caja ni estadísticas.',
+                 bg=LIGHT, fg=MUTED, wraplength=750).pack(anchor='w', pady=12)
+        self._btn(deleted, 'Ver detalle y pagos', self.ui_deleted_detail).pack(anchor='w', pady=(0,8))
+        self.deleted_tree = self._make_tree(deleted,
+            ('ID', 'Eliminada el', 'Cliente', 'Producto', 'Total', 'Cobrado', 'Motivo'),
+            [75,155,130,140,100,100,220])
+        self.deleted_tree.bind('<Double-1>', lambda event: self.ui_deleted_detail())
         form = tk.Frame(new,bg=PANEL,padx=13,pady=14,
                         highlightbackground=BORDER,highlightthickness=1)
         form.pack(fill='x',pady=(14, 13))
@@ -232,7 +243,7 @@ class BlossomApp(tk.Tk):
                  bg=LIGHT,fg=MUTED,font=('Segoe UI',9)).pack(side='left',padx=16)
         lower = tk.Frame(new,bg=MINT,padx=15,pady=14)
         lower.pack(fill='x')
-        tk.Label(lower,text='¿Qué pasa al guardará',fg=MINT_TEXT,bg=MINT,
+        tk.Label(lower,text='¿Qué pasa al guardar?',fg=MINT_TEXT,bg=MINT,
                  font=('Segoe UI Semibold',10)).pack(anchor='w')
         tk.Label(lower,text='La venta queda registrada. Si hay adelanto, se registra un cobro. '
                  'El ingreso se reconoce como venta cuando cambies su estado a Entregado.',
@@ -246,6 +257,7 @@ class BlossomApp(tk.Tk):
         ent.pack(side='left',padx=10)
         self._btn(search_frame,'Buscar',self.refresh_sales).pack(side='left')
         self._btn(search_frame,'Exportar CSV',self.export_sales,mint=True).pack(side='right')
+        self._btn(search_frame,'Comprobante PDF',self.ui_receipt,mint=True).pack(side='right',padx=8)
         self.sales_tree=self._make_tree(hist,('ID','Fecha','Cliente','Arreglo','Estado','Total','Cobrado','Saldo'),
                                         [68,102,140,165,124,102,102,102],height=12)
         actions=tk.Frame(hist,bg=LIGHT)
@@ -275,12 +287,65 @@ class BlossomApp(tk.Tk):
                 f'V-{s["id"]:04d}', s['sale_date'],s['client'],s['product'],s['status'],
                 bs(s['total_cents']),bs(s['paid_cents']),bs(bal)))
 
+        self.deleted_records = {str(item['id']): item for item in self.db.deleted_sales()}
+        for child in self.deleted_tree.get_children():
+            self.deleted_tree.delete(child)
+        for key, item in self.deleted_records.items():
+            sale = item['sale']
+            self.deleted_tree.insert('', 'end', iid=key, values=(f'V-{item["sale_id"]:04d}',
+                item['created_at'], sale['client'], sale['product'], bs(sale['total_cents']),
+                bs(sale['paid_cents']), item['reason']))
+
+    def ui_deleted_detail(self):
+        selection = self.deleted_tree.selection()
+        if not selection:
+            messagebox.showwarning('Selecciona una venta eliminada', 'Selecciona una fila del historial de eliminaciones.', parent=self)
+            return
+        item = self.deleted_records[selection[0]]
+        sale = item['sale']
+        payments = '\n'.join(f'{p["payment_date"]} · {p["method"]} · {bs(p["amount_cents"])}' for p in item['payments']) or 'Sin pagos.'
+        text = (f'Venta V-{item["sale_id"]:04d} · Fecha: {sale["sale_date"]}\n'
+                f'Cliente: {sale["client"]} · Teléfono: {sale["phone"]}\n'
+                f'Producto: {sale["product"]} · Cantidad: {sale["qty"]} · {sale["mode"]}\n'
+                f'Estado original: {sale["status"]} · Entrega: {sale["delivery_date"] or "Sin entregar"}\n'
+                f'Precio unitario: {bs(sale["price_cents"])} · Costo unitario: {bs(sale["cost_cents"])}\n'
+                f'Envío: {bs(sale["shipping_cents"])} · Descuento: {bs(sale["discount_cents"])}\n'
+                f'Total: {bs(sale["total_cents"])} · Cobrado neto: {bs(sale["paid_cents"])}\n'
+                f'Notas: {sale["notes"]}\n\nEliminada el: {item["created_at"]}\n'
+                f'Motivo: {item["reason"]}\n\nPagos y devoluciones originales:\n{payments}')
+        win = tk.Toplevel(self)
+        win.title('Detalle de venta eliminada')
+        win.geometry('750x480')
+        box = tk.Text(win, wrap='word', padx=15, pady=15)
+        scroll = ttk.Scrollbar(win, command=box.yview)
+        scroll.pack(side='right', fill='y')
+        box.configure(yscrollcommand=scroll.set)
+        box.pack(fill='both', expand=True)
+        box.insert('1.0', text)
+        box.configure(state='disabled')
+
     def selected_sale_id(self):
         selection=self.sales_tree.selection()
         if not selection:
             messagebox.showwarning('Selecciona una venta','Primero selecciona una fila del historial.',parent=self)
             return None
         return int(selection[0])
+
+    def ui_receipt(self):
+        sid = self.selected_sale_id()
+        if sid is None:
+            return
+        path = filedialog.asksaveasfilename(parent=self, title='Guardar comprobante PDF',
+            defaultextension='.pdf', initialfile=f'BLOSSOM_V-{sid:04d}.pdf',
+            filetypes=[('Documento PDF', '*.pdf')])
+        if not path:
+            return
+        def task():
+            from receipt import generate_receipt
+            generate_receipt(self.db, sid, path, resource_path('assets/logo.png'))
+            messagebox.showinfo('Comprobante guardado',
+                f'PDF guardado en:\n{path}\n\nAbre el archivo y utiliza Imprimir (Ctrl+P).', parent=self)
+        self._safe(task)
 
     def ui_add_payment(self):
         sale_id=self.selected_sale_id()
@@ -422,11 +487,20 @@ class BlossomApp(tk.Tk):
         ttk.Combobox(toolbar,textvariable=self.year_var,values=[str(n) for n in range(2024,2036)],
                      width=8,state='readonly').pack(side='left',padx=12)
         self._btn(toolbar,'Actualizar',self.redraw_stats).pack(side='left')
+        self.stats_summary=tk.Label(self.content,bg=LIGHT,fg=ROSE_DARK,wraplength=750,justify='left')
+        self.stats_summary.pack(anchor='w',pady=(0,8))
         self.stats_metrics=tk.Frame(self.content,bg=LIGHT)
         self.stats_metrics.pack(fill='x',pady=(0,15))
-        self.chart_frame=tk.Frame(self.content,bg=PANEL,padx=12,pady=12,
+        reports=ttk.Notebook(self.content)
+        reports.pack(fill='both',expand=True)
+        monthly=tk.Frame(reports,bg=LIGHT)
+        self.chart_frame=tk.Frame(reports,bg=PANEL,padx=12,pady=12,
                                   highlightbackground=BORDER,highlightthickness=1)
-        self.chart_frame.pack(fill='both',expand=True)
+        reports.add(self.chart_frame,text='  Gráfica  ')
+        reports.add(monthly,text='  Datos por mes  ')
+        self.monthly_tree=self._make_tree(monthly,
+            ('Mes','Registrado','Entregado','Cobrado','Gastos pagados','Costo','Gasto operativo','Resultado'),
+            [75,110,110,110,120,100,120,110],height=12)
         self.chart_title=tk.Label(self.chart_frame,text='Ventas y gastos operativos por mes',
                                   fg=ROSE_DARK,bg=PANEL,font=('Segoe UI Semibold',13))
         self.chart_title.pack(anchor='w',pady=(0,10))
@@ -440,6 +514,16 @@ class BlossomApp(tk.Tk):
     def redraw_stats(self):
         year=int(self.year_var.get())
         self.chart_data=self.db.monthly_series(year)
+        registered=sum(x['registered'] for _,x in self.chart_data)
+        collected=sum(x['collected'] for _,x in self.chart_data)
+        spent=sum(x['spent'] for _,x in self.chart_data)
+        self.stats_summary.config(text=f'Año {year} · Pedidos registrados: {bs(registered)} · Cobros netos: {bs(collected)} · Todos los gastos pagados: {bs(spent)}\n'
+            'Entregado se cuenta por fecha de entrega; cobros y gastos, por fecha de movimiento. Materiales no se restan dos veces del resultado.')
+        for child in self.monthly_tree.get_children():
+            self.monthly_tree.delete(child)
+        for month,t in self.chart_data:
+            self.monthly_tree.insert('', 'end', values=(month, *[bs(t[key]) for key in
+                ('registered','sales','collected','spent','cost','operating','result')]))
         sold=sum(x['sales'] for _,x in self.chart_data)
         cost=sum(x['cost'] for _,x in self.chart_data)
         op=sum(x['operating'] for _,x in self.chart_data)
@@ -447,15 +531,16 @@ class BlossomApp(tk.Tk):
         for j,(lab,value,tone) in enumerate([
             ('Ventas entregadas',bs(sold),SOFT),('Costos de producción',bs(cost),'#FFF0E5'),
             ('Gastos operativos',bs(op),'#F5EDF8'),('Resultado estimado',bs(sold-cost-op),MINT)]):
-            self.stats_metrics.columnconfigure(j,weight=1)
+            self.stats_metrics.columnconfigure(j % 2,weight=1,uniform='stats_cards')
             self._card(self.stats_metrics,lab,value,tone,large=False).grid(
-                row=0,column=j,sticky='ew',padx=(0 if j==0 else 5,5))
+                row=j//2,column=j%2,sticky='ew',padx=5,pady=4)
         self.draw_chart()
 
     def draw_chart(self):
         if not hasattr(self,'canvas') or not hasattr(self,'chart_data'):return
         c=self.canvas;c.delete('all')
-        w=max(c.winfo_width(),600);h=max(c.winfo_height(),275)
+        w=c.winfo_width();h=c.winfo_height()
+        if w < 150 or h < 100:return
         left,top,right,bottom=62,25,18,47
         plot_w=w-left-right;plot_h=h-top-bottom
         mx=max([1]+[max(t['sales'],t['operating']) for _,t in self.chart_data])
@@ -499,6 +584,9 @@ class BlossomApp(tk.Tk):
         tk.Label(self.content,text='Guarda una copia de todas tus ventas, pagos y gastos en un archivo .db.',
                  bg=LIGHT,fg=MUTED,font=('Segoe UI',9)).pack(anchor='w',pady=(5,12))
         self._btn(self.content,'Guardar copia de seguridad',self.ui_backup,mint=True).pack(anchor='w')
+        self._btn(self.content,'Restaurar copia de seguridad',self.ui_restore).pack(anchor='w',pady=(8,0))
+        tk.Label(self.content,text='Respaldos diarios: '+str(self.db.backup_dir),
+                 bg=LIGHT,fg=MUTED,wraplength=750).pack(anchor='w',pady=(8,0))
         tk.Label(self.content,text='Ubicación de datos: '+str(self.db.path),bg=LIGHT,fg=MUTED,
                  wraplength=800,justify='left',font=('Segoe UI',9)).pack(anchor='w',pady=(24,8))
         tk.Label(self.content,text='BLOSSOM v0.1  ·  Moneda: bolivianos (Bs)  ·  Impuestos: por configurar',

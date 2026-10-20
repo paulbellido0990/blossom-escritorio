@@ -1,0 +1,25 @@
+BLOSSOM · PASO 1 · SISTEMA DE VENTAS LOCAL
+=========================================
+Este paquete NO incluye un .exe compilado. Incluye la aplicación
+funcional, su base de datos, pruebas y una compilación automática
+preparada para Windows.
+
+LA FORMA MÁS SIMPLE DE OBTENER BLOSSOM.EXE
+1. Crea un repositorio privado en GitHub.
+2. Sube el contenido completo de esta carpeta.
+   IMPORTANTE: incluye .github/workflows/windows-exe.yml
+3. Abre la pestaña Actions del repositorio.
+4. Selecciona "Crear EXE de BLOSSOM" y pulsa Run workflow.
+5. Al terminar, descarga el artifact BLOSSOM_Windows_Portable.
+6. Extrae BLOSSOM.exe y cópialo a la laptop del negocio.
+7. Haz doble clic. La laptop NO necesita VS Code ni Python.
+
+LOS DATOS SE GUARDAN EN:
+%LOCALAPPDATA%\BLOSSOM\blossom.db
+
+No borres esa carpeta. Crea copias de seguridad desde Configuración.
+
+El primer paso al abrir el programa es configurar el saldo inicial
+y registrar una venta de prueba, un adelanto y un gasto.
+
+Consulta README.md para arquitectura, precauciones y funciones.

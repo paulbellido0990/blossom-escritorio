@@ -1,0 +1,30 @@
+name: Crear EXE de BLOSSOM
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar herramientas de compilacion
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pytest
+      - name: Probar contabilidad
+        run: python -m pytest -q
+      - name: Crear ejecutable Windows
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name BLOSSOM --add-data "assets/logo.png;assets" app.py
+      - name: Publicar instalable portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLOSSOM_Windows_Portable
+          path: dist/BLOSSOM.exe
+          if-no-files-found: error

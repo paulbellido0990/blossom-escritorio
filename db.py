@@ -1,5 +1,7 @@
 """Datos locales de BLOSSOM. Todos los importes se guardan en centavos de Bs."""
 import csv
+import json
+import uuid
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -61,6 +63,9 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
+        if self.conn.execute('PRAGMA user_version').fetchone()[0] > 1:
+            self.conn.close()
+            raise ValueError('La base requiere una nueva version de BLOSSOM.')
         self.conn.execute('PRAGMA foreign_keys=ON')
         self.conn.execute('PRAGMA busy_timeout=3000')
         self.conn.executescript('''
@@ -110,6 +115,94 @@ class Database:
             INSERT OR IGNORE INTO settings(key,value) VALUES('initial_balance_cents','0');
         ''')
         self.conn.commit()
+        version = self.conn.execute('PRAGMA user_version').fetchone()[0]
+        if version > 1:
+            self.conn.close()
+            raise ValueError('Esta base requiere una versión más reciente de BLOSSOM.')
+        if version < 1:
+            self.safety_backup('antes_migracion')
+            with self.conn:
+                self.conn.execute("""CREATE TABLE IF NOT EXISTS audit_log(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL,
+                    sale_id INTEGER NOT NULL, reason TEXT NOT NULL, snapshot TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))""")
+                self.conn.execute('PRAGMA user_version=1')
+
+    @property
+    def backup_dir(self):
+        return self.path.parent / (self.path.stem + '_respaldos')
+
+    def safety_backup(self, label):
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        return self.backup(self.backup_dir / f'{label}_{stamp}_{uuid.uuid4().hex[:8]}.db')
+
+    def automatic_backup(self):
+        target = self.backup_dir / f'diario_{date.today().isoformat()}.db'
+        if not target.exists():
+            self.backup(target)
+        for old in sorted(self.backup_dir.glob('diario_*.db'), reverse=True)[30:]:
+            old.unlink()
+        return target
+
+    def delete_sale(self, sale_id, reason):
+        if not reason or not reason.strip():
+            raise ValueError('Escribe el motivo de eliminación.')
+        self.sale(sale_id)
+        backup = self.safety_backup('antes_eliminar')
+        with self.conn:
+            snapshot = json.dumps({'sale': dict(self.sale(sale_id)),
+                'payments': [dict(row) for row in self.sale_payments(sale_id)]}, ensure_ascii=False)
+            self.conn.execute('INSERT INTO audit_log(action,sale_id,reason,snapshot) VALUES(?,?,?,?)',
+                ('delete_sale', sale_id, reason.strip(), snapshot))
+            self.conn.execute('DELETE FROM payments WHERE sale_id=?', (sale_id,))
+            self.conn.execute('DELETE FROM sales WHERE id=?', (sale_id,))
+        return backup
+
+    def restore(self, source):
+        source = Path(source).resolve()
+        if source == self.path.resolve():
+            raise ValueError('Selecciona un respaldo distinto de la base activa.')
+        try:
+            incoming = sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)
+            try:
+                if incoming.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise ValueError('El respaldo está dañado.')
+                version = incoming.execute('PRAGMA user_version').fetchone()[0]
+                if version > 1:
+                    raise ValueError('El respaldo requiere una versión más reciente de BLOSSOM.')
+                for table in ('settings', 'sales', 'payments', 'expenses'):
+                    expected = {row[1] for row in self.conn.execute(f'PRAGMA table_info({table})')}
+                    found = {row[1] for row in incoming.execute(f'PRAGMA table_info({table})')}
+                    if not expected.issubset(found):
+                        raise ValueError('El archivo no es un respaldo compatible de BLOSSOM.')
+                if version == 1:
+                    found = {row[1] for row in incoming.execute('PRAGMA table_info(audit_log)')}
+                    if not {'id','action','sale_id','reason','snapshot','created_at'}.issubset(found):
+                        raise ValueError('El historial del respaldo no es compatible.')
+                if incoming.execute('PRAGMA foreign_key_check').fetchone():
+                    raise ValueError('El respaldo tiene relaciones inconsistentes.')
+                balance = incoming.execute("SELECT value FROM settings WHERE key='initial_balance_cents'").fetchone()
+                if balance is None or int(balance[0]) < 0:
+                    raise ValueError('El respaldo no contiene un saldo inicial válido.')
+                previous = self.safety_backup('antes_restaurar')
+                # Migrar respaldos antiguos en memoria antes de reemplazar los datos.
+                staged = sqlite3.connect(':memory:')
+                try:
+                    incoming.backup(staged)
+                    staged.execute("""CREATE TABLE IF NOT EXISTS audit_log(
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL,
+                        sale_id INTEGER NOT NULL, reason TEXT NOT NULL, snapshot TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))""")
+                    staged.execute('PRAGMA user_version=1')
+                    staged.commit()
+                    staged.backup(self.conn)
+                finally:
+                    staged.close()
+            finally:
+                incoming.close()
+        except sqlite3.DatabaseError as exc:
+            raise ValueError('No se pudo leer un respaldo válido de SQLite.') from exc
+        return previous
 
     def close(self):
         self.conn.close()
@@ -222,6 +315,8 @@ class Database:
             raise ValueError('No se puede retroceder un pedido entregado en esta versión.')
         if status == 'Cancelado' and s['paid_cents'] != 0:
             raise ValueError('Debes devolver todos los cobros antes de cancelar el pedido.')
+        if s['status'] == status:
+            return
         if status == 'Entregado':
             delivery = self._date(when or date.today().isoformat())
         else:

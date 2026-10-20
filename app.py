@@ -37,6 +37,7 @@ class BlossomApp(tk.Tk):
         self._style()
         self._layout()
         self.show_page('Inicio')
+        self.after_idle(lambda: self._safe(self.db.automatic_backup))
 
     def _style(self):
         sty = ttk.Style(self)
@@ -231,7 +232,7 @@ class BlossomApp(tk.Tk):
                  bg=LIGHT,fg=MUTED,font=('Segoe UI',9)).pack(side='left',padx=16)
         lower = tk.Frame(new,bg=MINT,padx=15,pady=14)
         lower.pack(fill='x')
-        tk.Label(lower,text='¿Qué pasa al guardar?',fg=MINT_TEXT,bg=MINT,
+        tk.Label(lower,text='¿Qué pasa al guardará',fg=MINT_TEXT,bg=MINT,
                  font=('Segoe UI Semibold',10)).pack(anchor='w')
         tk.Label(lower,text='La venta queda registrada. Si hay adelanto, se registra un cobro. '
                  'El ingreso se reconoce como venta cuando cambies su estado a Entregado.',
@@ -251,7 +252,8 @@ class BlossomApp(tk.Tk):
         actions.pack(fill='x',pady=(12,0))
         for text,call,highlight in [
            ('Registrar cobro',self.ui_add_payment,True),('Devolver cobro',self.ui_refund,False),
-           ('Cambiar estado',self.ui_change_status,False),('Ver pagos',self.ui_payment_history,False)]:
+           ('Cambiar estado',self.ui_change_status,False),('Ver pagos',self.ui_payment_history,False),
+           ('Eliminar venta',self.ui_delete_sale,False)]:
             self._btn(actions,text,call,primary=highlight).pack(side='left',padx=(0,7))
         self.refresh_sales()
 
@@ -341,6 +343,30 @@ class BlossomApp(tk.Tk):
             if self.db.sale(sid)['status']==state.get():
                 win.destroy();self.refresh_sales()
         self._btn(win,'Actualizar estado',save,True).pack(pady=16)
+
+    def ui_delete_sale(self):
+        sid = self.selected_sale_id()
+        if sid is None:
+            return
+        def task():
+            sale = self.db.sale(sid)
+            reason = simpledialog.askstring('Eliminar venta',
+                f'Venta V-{sid:04d} · {sale["client"]} · {sale["product"]}\n\nMotivo de eliminación:', parent=self)
+            if reason is None:
+                return
+            if not reason.strip():
+                raise ValueError('Escribe el motivo de eliminación.')
+            if not messagebox.askyesno('Confirmar eliminación',
+                f'Se eliminará V-{sid:04d}, por {bs(sale["total_cents"])}.\n'
+                f'También sus pagos y devoluciones (neto: {bs(sale["paid_cents"])}).\n'
+                'Esto modifica los reportes y la caja; no representa una devolución real.\n'
+                'Se guardará un respaldo y el motivo en el historial interno.\n\n¿Eliminar esta venta?',
+                parent=self, icon='warning', default='no'):
+                return
+            backup = self.db.delete_sale(sid, reason)
+            self.refresh_sales()
+            messagebox.showinfo('Venta eliminada', f'Respaldo previo: {backup}', parent=self)
+        self._safe(task)
 
     def ui_payment_history(self):
         sid=self.selected_sale_id()
@@ -492,6 +518,22 @@ class BlossomApp(tk.Tk):
         if not path:return
         self._safe(lambda:(self.db.backup(path),messagebox.showinfo('Respaldo guardado',
                                 'La copia se guardó correctamente.',parent=self)))
+
+    def ui_restore(self):
+        path = filedialog.askopenfilename(parent=self, title='Restaurar respaldo de BLOSSOM',
+            filetypes=[('Base de datos SQLite', '*.db')])
+        if not path:
+            return
+        if not messagebox.askyesno('Restaurar respaldo',
+            'Se reemplazarán ventas, pagos, gastos y configuración por los del respaldo.\n'
+            'Se guardará una copia previa de los datos actuales.\n\n¿Continuar?',
+            parent=self, icon='warning', default='no'):
+            return
+        def task():
+            previous = self.db.restore(path)
+            self.show_page('Configuración')
+            messagebox.showinfo('Respaldo restaurado', f'Datos restaurados.\nCopia anterior: {previous}', parent=self)
+        self._safe(task)
 
     def export_sales(self):
         path=filedialog.asksaveasfilename(parent=self,defaultextension='.csv',

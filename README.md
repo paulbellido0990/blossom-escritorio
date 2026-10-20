@@ -65,7 +65,7 @@ python -m pytest -q
 - Un solo dispositivo / un usuario; no sincroniza teléfonos ni otras laptops.
 - No maneja catálogo, inventario de materiales ni productos terminados todavía.
 - Los campos de producto y cliente son libres, sin fichas independientes.
-- No se editan ni eliminan ventas o gastos; el objetivo es preservar historial (las correcciones avanzadas son para la siguiente versión).
+- No se editan ventas ni gastos, ni se eliminan gastos. Las ventas se pueden eliminar con motivo, confirmación, respaldo e historial interno.
 - Registro de pagos con métodos Efectivo, QR, Transferencia u Otro, pero **no se separan saldos por cuenta**.
 - No factura, no calcula impuestos, no imprime tickets ni integra WhatsApp.
 - El archivo EXE debe **compilarse en Windows**. Este paquete contiene el código y las instrucciones de compilación, **no un EXE ya compilado**.
@@ -84,4 +84,14 @@ python -m pytest -q
 1. Probar una venta real con adelanto y una entrega.
 2. Confirmar si quieres separar efectivo, QR y bancos.
 3. Incorporar edición controlada de registros, catálogo, inventario y reportes de rentabilidad.
-4. Incorporar restauración de copias de seguridad (actualmente solo se crean desde la interfaz).
+4. Ampliar las correcciones auditables y permitir elegir una ubicación externa para los respaldos automáticos.
+
+## Mejoras implementadas: protección de datos y eliminación
+
+- En **Ventas → Historial y cobros**, selecciona una venta y pulsa **Eliminar venta**. Indica un motivo y confirma. Se eliminan la venta y sus pagos/devoluciones; se recalculan caja y reportes. Esta acción corrige registros: no sustituye una devolución real de dinero.
+- Antes de eliminar se crea un respaldo completo. El detalle eliminado y el motivo quedan en la tabla interna `audit_log`.
+- En **Configuración → Restaurar copia de seguridad** puedes cargar un respaldo compatible. Primero se validan integridad, estructura y relaciones, y se guarda una copia de los datos actuales. La restauración reemplaza el conjunto completo de datos.
+- Al iniciar se crea un respaldo diario; se conservan los últimos 30 días de uso. Los respaldos previos a eliminación, restauración y migración se conservan por separado.
+- Las copias automáticas se guardan junto a la base, en `blossom_respaldos`. Mantén además copias externas desde Configuración.
+- Volver a seleccionar Entregado conserva la fecha original de entrega.
+- La base utiliza `PRAGMA user_version=1`; se admiten respaldos de la versión inicial y se incorpora el historial interno al restaurarlos.
